@@ -8,7 +8,7 @@ Benchmarking SIMD-optimized small-sized matrix calculations
 
 ## Run benchmarks
 ```bash
-mvn install
+mvn verify
 ```
 
 ## Results
