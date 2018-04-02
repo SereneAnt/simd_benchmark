@@ -1,6 +1,6 @@
 # simd_benchmark
 
-Benchmarking SIMD-optimized small-sized matrix calculations
+Benchmarking SIMD-optimized matrix calculations with [Nd4j](https://github.com/deeplearning4j/nd4j) library.
 
 ## Prerequisites
 * JDK 1.8
