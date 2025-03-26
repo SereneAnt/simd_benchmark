@@ -1,5 +1,6 @@
 package simd;
 
+import org.ejml.simple.SimpleMatrix;
 import org.junit.Test;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
@@ -10,7 +11,9 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
 
-import java.util.Random;
+import Jama.Matrix;
+
+import java.util.SplittableRandom;
 import java.util.concurrent.TimeUnit;
 
 public class MatrixTest {
@@ -18,125 +21,115 @@ public class MatrixTest {
     @Test
     public void launchBenchmark() throws Exception {
         Options opt = new OptionsBuilder()
-            .include(this.getClass().getName() + ".*")
-            // Set the following options as needed
-            .mode(Mode.AverageTime)
-            .timeUnit(TimeUnit.MICROSECONDS)
-            .warmupTime(TimeValue.seconds(1))
-            .warmupIterations(3)
-            .measurementTime(TimeValue.seconds(1))
-            .measurementIterations(5)
-            .threads(1)
-            .forks(1)
-            .shouldFailOnError(true)
-            .shouldDoGC(true)
-            .jvmArgs("-XX:+UseSuperWord") //it's on by default anyway
-            //.addProfiler(WinPerfAsmProfiler.class)
-            .build();
+                .include(this.getClass().getName() + ".*")
+                // Set the following options as needed
+                .mode(Mode.SampleTime)
+                .timeUnit(TimeUnit.MILLISECONDS)
+                .warmupTime(TimeValue.seconds(10))
+                .warmupIterations(3)
+                .measurementTime(TimeValue.seconds(10))
+                .measurementIterations(3)
+                .threads(1)
+                .forks(1)
+                .shouldFailOnError(true)
+                .shouldDoGC(true)
+                .jvmArgs("-XX:+UseSuperWord") //it's on by default anyway
+                //.addProfiler(WinPerfAsmProfiler.class)
+                .build();
 
         new Runner(opt).run();
     }
 
+
     @State(Scope.Benchmark)
     public static class BenchmarkState {
-        Matrix a3x3;
-        Matrix b3x3;
-        Matrix b3x10;
-        Matrix b3x100;
-        Matrix aHuge;
-        Matrix bHuge;
-
-        INDArray ndA3x3;
-        INDArray ndB3x3;
-        INDArray ndB3x10;
-        INDArray ndB3x100;
-        INDArray ndAhuge;
-        INDArray ndBhuge;
+        JvmMatrix a600x384, b384x602;
+        INDArray ndA600x384, ndB384x602;
+        double[] blasA600x384, blasB384x602;
+        SimpleMatrix ejmlA600x384, ejmlB384x602;
+        Jama.Matrix jamaA600x384, jamaB384x602;
 
         @Setup(Level.Trial)
         public void setup() {
-            double[][] dataA3x3 = generateData(3, 3);
-            double[][] dataB3x3 = generateData(3, 3);
-            double[][] dataB3x10 = generateData(3, 10);
-            double[][] dataB3x100 = generateData(3, 100);
-            double[][]dataAhuge = generateData(1000, 1000);
-            double[][]dataBhuge = generateData(1000, 1000);
+            double[][] dataA600x384 = generateData(600, 384);
+            double[][] dataB384x602 = generateData(384, 602);
 
-            a3x3 = new Matrix(dataA3x3);
-            b3x3 = new Matrix(dataB3x3);
-            b3x10 = new Matrix(dataB3x10);
-            b3x100 = new Matrix(dataB3x100);
-            aHuge = new Matrix(dataAhuge);
-            bHuge = new Matrix(dataAhuge);
+            a600x384 = new JvmMatrix(dataA600x384);
+            b384x602 = new JvmMatrix(dataB384x602);
 
-            ndA3x3 = Nd4j.create(dataA3x3);
-            ndB3x3 = Nd4j.create(dataB3x3);
-            ndB3x10 = Nd4j.create(dataB3x10);
-            ndB3x100 = Nd4j.create(dataB3x100);
-            ndAhuge = Nd4j.create(dataAhuge);
-            ndBhuge = Nd4j.create(dataBhuge);
+            ndA600x384 = Nd4j.create(dataA600x384);
+            ndB384x602 = Nd4j.create(dataB384x602);
+
+            blasA600x384 = asBlas(dataA600x384);
+            blasB384x602 = asBlas(dataB384x602);
+
+            ejmlA600x384 = new SimpleMatrix(dataA600x384);
+            ejmlB384x602 = new SimpleMatrix(dataB384x602);
+
+            jamaA600x384 = new Matrix(dataA600x384);
+            jamaB384x602 = new Matrix(dataB384x602);
         }
 
         private double[][] generateData(int sizeI, int sizeJ) {
             double[][] result = new double[sizeI][sizeJ];
-            Random rand = new Random();
+            final SplittableRandom rnd = new SplittableRandom();
             for (int i = 0; i < sizeI; i++) {
                 for (int j = 0; j < sizeJ; j++) {
-                    result[i][j] = rand.nextDouble();
+                    result[i][j] = rnd.nextDouble();
                 }
             }
             return result;
         }
+
+        private double[] asBlas(double[][] in) {
+            //column-major order!
+            final int m = in.length;
+            final int n = in[0].length;
+            final double[] res = new double[n * m];
+            for (int i = 0; i < m; i++) {
+                for (int j = 0; j < n; j++) {
+                    res[j * m + i] = in[i][j];
+                }
+            }
+            return res;
+        }
     }
 
     @Benchmark
-    public void benchmark_ForLoop_3x03(BenchmarkState state, Blackhole bh) {
-        Matrix dotProduct = state.a3x3.dot(state.b3x3);
-        bh.consume(dotProduct);
+    public void java_600x384x602(BenchmarkState state, Blackhole bh) {
+        bh.consume(
+                state.a600x384.mul(state.b384x602)
+        );
     }
 
     @Benchmark
-    public void benchmark_ForLoop_3x10(BenchmarkState state, Blackhole bh) {
-        Matrix dotProduct = state.a3x3.dot(state.b3x10);
-        bh.consume(dotProduct);
+    public void nd4j_600x384x602(BenchmarkState state, Blackhole bh) {
+        bh.consume(
+                state.ndA600x384.mmul(state.ndB384x602)
+        );
     }
 
     @Benchmark
-    public void benchmark_ForLoop_3x100(BenchmarkState state, Blackhole bh) {
-        Matrix dotProduct = state.a3x3.dot(state.b3x100);
-        bh.consume(dotProduct);
+    public void blas_600x384x602(BenchmarkState state, Blackhole bh) {
+        bh.consume(
+                BlasHelper.blasMul(state.blasA600x384, state.blasB384x602,
+                        600, 384, 602 //DEBT: Hardcode!
+                )
+        );
     }
 
     @Benchmark
-    public void benchmark_ForLoop_Huge(BenchmarkState state, Blackhole bh) {
-        Matrix dotProduct = state.aHuge.dot(state.bHuge);
-        bh.consume(dotProduct);
+    public void ejml_600x384x602(BenchmarkState state, Blackhole bh) {
+        bh.consume(
+                state.ejmlA600x384.mult(state.ejmlB384x602)
+        );
     }
 
     @Benchmark
-    public void benchmark_Nd4j_3x03(BenchmarkState state, Blackhole bh) {
-        INDArray dotProduct = state.ndA3x3.mmul(state.ndB3x3);
-        bh.consume(dotProduct);
-    }
-
-    @Benchmark
-    public void benchmark_Nd4j_3x10(BenchmarkState state, Blackhole bh) {
-        INDArray dotProduct = state.ndA3x3.mmul(state.ndB3x10);
-        bh.consume(dotProduct);
-    }
-
-    @Benchmark
-    public void benchmark_Nd4j_3x100(BenchmarkState state, Blackhole bh) {
-        INDArray dotProduct = state.ndA3x3.mmul(state.ndB3x100);
-        bh.consume(dotProduct);
-    }
-
-    @Benchmark
-    public void benchmark_Nd4j_Huge(BenchmarkState state, Blackhole bh) {
-        INDArray dotProduct = state.ndAhuge.mmul(state.ndBhuge);
-        bh.consume(dotProduct);
+    public void jama_600x384x602(BenchmarkState state, Blackhole bh) {
+        bh.consume(
+                state.jamaA600x384.times(state.jamaB384x602)
+        );
     }
 
 }
-
-
